@@ -3,96 +3,132 @@ const cors = require('cors');
 const morgan = require('morgan');
 const Database = require('better-sqlite3');
 
-// Initialize express app
+const { validateTitle, validateDueDate, normalizeDueDate } = require('./validation');
+
 const app = express();
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Initialize in-memory SQLite database
 const db = new Database(':memory:');
 
-// Create tables
 db.exec(`
-  CREATE TABLE IF NOT EXISTS items (
+  CREATE TABLE IF NOT EXISTS todos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    due_date TEXT,
+    completed INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )
 `);
 
-// Insert some initial data
-const initialItems = ['Item 1', 'Item 2', 'Item 3'];
-const insertStmt = db.prepare('INSERT INTO items (name) VALUES (?)');
+const statements = {
+  list: db.prepare('SELECT * FROM todos ORDER BY due_date IS NULL, due_date ASC, id ASC'),
+  get: db.prepare('SELECT * FROM todos WHERE id = ?'),
+  insert: db.prepare('INSERT INTO todos (title, due_date) VALUES (?, ?)'),
+  update: db.prepare('UPDATE todos SET title = ?, due_date = ?, completed = ? WHERE id = ?'),
+  remove: db.prepare('DELETE FROM todos WHERE id = ?'),
+};
 
-initialItems.forEach(item => {
-  insertStmt.run(item);
+const toTodo = (row) => ({
+  id: row.id,
+  title: row.title,
+  dueDate: row.due_date,
+  completed: row.completed === 1,
+  createdAt: row.created_at,
 });
 
-console.log('In-memory database initialized with sample data');
+const parseId = (value) => (/^\d+$/.test(value) ? Number(value) : null);
 
-// Health check endpoint
+const validateCompleted = (completed) =>
+  typeof completed === 'boolean' ? null : 'Completed must be a boolean';
+
+// Only fields present in a PUT body are validated.
+const validateUpdate = ({ title, dueDate, completed }) =>
+  (title !== undefined && validateTitle(title)) ||
+  (dueDate !== undefined && validateDueDate(dueDate)) ||
+  (completed !== undefined && validateCompleted(completed)) ||
+  null;
+
 app.get('/', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Backend server is running' });
 });
 
-// API Routes
-app.get('/api/items', (req, res) => {
+app.get('/api/todos', (req, res) => {
   try {
-    const items = db.prepare('SELECT * FROM items ORDER BY created_at DESC').all();
-    res.json(items);
+    res.json(statements.list.all().map(toTodo));
   } catch (error) {
-    console.error('Error fetching items:', error);
-    res.status(500).json({ error: 'Failed to fetch items' });
+    console.error('Error fetching todos:', error);
+    res.status(500).json({ error: 'Failed to fetch todos' });
   }
 });
 
-app.post('/api/items', (req, res) => {
+app.post('/api/todos', (req, res) => {
   try {
-    const { name } = req.body;
+    const { title, dueDate } = req.body;
 
-    if (!name || typeof name !== 'string' || name.trim() === '') {
-      return res.status(400).json({ error: 'Item name is required' });
+    const validationError = validateTitle(title) || validateDueDate(dueDate);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
     }
 
-    const result = insertStmt.run(name);
-    const id = result.lastInsertRowid;
-
-    const newItem = db.prepare('SELECT * FROM items WHERE id = ?').get(id);
-    res.status(201).json(newItem);
+    const result = statements.insert.run(title.trim(), normalizeDueDate(dueDate));
+    res.status(201).json(toTodo(statements.get.get(result.lastInsertRowid)));
   } catch (error) {
-    console.error('Error creating item:', error);
-    res.status(500).json({ error: 'Failed to create item' });
+    console.error('Error creating todo:', error);
+    res.status(500).json({ error: 'Failed to create todo' });
   }
 });
 
-app.delete('/api/items/:id', (req, res) => {
+app.put('/api/todos/:id', (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({ error: 'Valid item ID is required' });
+    const id = parseId(req.params.id);
+    if (id === null) {
+      return res.status(400).json({ error: 'Valid todo ID is required' });
     }
 
-    const existingItem = db.prepare('SELECT * FROM items WHERE id = ?').get(id);
-    if (!existingItem) {
-      return res.status(404).json({ error: 'Item not found' });
+    const existing = statements.get.get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Todo not found' });
     }
 
-    const deleteStmt = db.prepare('DELETE FROM items WHERE id = ?');
-    const result = deleteStmt.run(id);
-
-    if (result.changes > 0) {
-      res.json({ message: 'Item deleted successfully', id: parseInt(id) });
-    } else {
-      res.status(404).json({ error: 'Item not found' });
+    const validationError = validateUpdate(req.body);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
     }
+
+    const { title, dueDate, completed } = req.body;
+    statements.update.run(
+      title !== undefined ? title.trim() : existing.title,
+      dueDate !== undefined ? normalizeDueDate(dueDate) : existing.due_date,
+      completed !== undefined ? Number(completed) : existing.completed,
+      id
+    );
+    res.json(toTodo(statements.get.get(id)));
   } catch (error) {
-    console.error('Error deleting item:', error);
-    res.status(500).json({ error: 'Failed to delete item' });
+    console.error('Error updating todo:', error);
+    res.status(500).json({ error: 'Failed to update todo' });
   }
 });
 
-module.exports = { app, db, insertStmt };
+app.delete('/api/todos/:id', (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      return res.status(400).json({ error: 'Valid todo ID is required' });
+    }
+
+    const result = statements.remove.run(id);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Todo not found' });
+    }
+
+    res.json({ message: 'Todo deleted successfully', id });
+  } catch (error) {
+    console.error('Error deleting todo:', error);
+    res.status(500).json({ error: 'Failed to delete todo' });
+  }
+});
+
+module.exports = { app, db };

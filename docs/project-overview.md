@@ -62,6 +62,7 @@ The project uses npm workspaces to manage the monorepo structure. You can:
 - Run `npm test` from the root to run unit and integration tests for all packages
 - Run `npm run test:e2e` to run Playwright end-to-end (UI) tests
 - Run `npm run test:all` to run all tests (unit, integration, and E2E)
+- Run `npm run lint` and `npm run format:check` to check code quality and formatting (`npm run format` fixes formatting)
 - Work on individual packages by navigating to their directories and using their specific scripts
 
 ## Deployment

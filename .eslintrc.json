@@ -1,0 +1,22 @@
+{
+  "root": true,
+  "ignorePatterns": ["node_modules", "coverage", "build", "playwright-report", "test-results"],
+  "extends": ["eslint:recommended", "prettier"],
+  "parserOptions": { "ecmaVersion": 2022 },
+  "env": { "node": true, "es2022": true },
+  "overrides": [
+    {
+      "files": ["packages/backend/__tests__/**/*.js", "packages/frontend/src/__tests__/**/*.js"],
+      "env": { "jest": true }
+    },
+    {
+      "files": ["tests/e2e/**/*.js"],
+      "env": { "browser": true }
+    },
+    {
+      "files": ["packages/frontend/src/**/*.js"],
+      "extends": ["react-app", "react-app/jest", "prettier"],
+      "env": { "browser": true, "node": false }
+    }
+  ]
+}
