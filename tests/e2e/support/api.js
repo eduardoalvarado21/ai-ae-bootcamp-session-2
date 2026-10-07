@@ -11,4 +11,10 @@ const seedTodo = async (request, todo) => {
   return response.json();
 };
 
-module.exports = { resetTodos, seedTodo };
+// Reads the backend directly so tests can verify stored state, not just the UI.
+const listTodos = async (request) => {
+  const response = await request.get(`${BACKEND_URL}/api/todos`);
+  return response.json();
+};
+
+module.exports = { resetTodos, seedTodo, listTodos };

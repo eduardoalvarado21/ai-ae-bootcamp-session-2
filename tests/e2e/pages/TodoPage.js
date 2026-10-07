@@ -6,6 +6,7 @@ class TodoPage {
     this.addDueDateInput = this.addForm.getByLabel('Due date');
     this.addButton = this.addForm.getByRole('button', { name: 'Add' });
     this.formError = page.getByRole('alert');
+    this.errorBanner = page.locator('.status-error');
     this.items = page.getByRole('listitem');
     this.emptyState = page.getByText('No tasks yet');
   }
@@ -51,6 +52,14 @@ class TodoPage {
 
   async deleteTask(title) {
     await this.page.getByRole('button', { name: `Delete ${title}` }).click();
+  }
+
+  async markDone(title) {
+    await this.page.getByRole('button', { name: `Mark ${title} as done` }).click();
+  }
+
+  async markNotDone(title) {
+    await this.page.getByRole('button', { name: `Mark ${title} as not done` }).click();
   }
 
   async hasHorizontalScroll() {
